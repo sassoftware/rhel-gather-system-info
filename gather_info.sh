@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Copyright © 2022, SAS Institute Inc., Cary, NC, USA.  All Rights Reserved.
+# Copyright © 2022-2023, SAS Institute Inc., Cary, NC, USA.  All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # ============================
 # Gather System Info
 # Name: gather_info.sh
 # Author: Jim Kuell, SAS <support@sas.com>
-# Description: Gather and package a select set of information about a RHEL or CentOS 6, 7 or 8 system.
+# Description: Gather and package a select set of information about a RHEL (6, 7, 8 or 9) or CentOS (6, 7 or 8) system.
 # ============================
 #
 # USAGE
@@ -16,14 +16,16 @@
 #    -v, --version    Show version info.
 #
 
+set -o pipefail
+
 # ====================================================================
 # VARIABLES
 # ====================================================================
 GLOBAL_DATETIME="$(date +%y%m%d-%H%M%S)"
 GLOBAL_SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 GLOBAL_SCRIPT_NAME="$(basename "$(readlink -f "$0")")"
-GLOBAL_SCRIPT_VERSION="2.0.1"
-GLOBAL_SCRIPT_BUILD_ID="20221010201"
+GLOBAL_SCRIPT_VERSION="2.0.21"
+GLOBAL_SCRIPT_BUILD_ID="202310052021"
 GLOBAL_FHOST="$(hostname -f | tr -d '\040\011\012\015')"
 GLOBAL_SHOST="$(hostname -s | tr -d '\040\011\012\015')"
 GLOBAL_LOG_NAME="gather_info_${GLOBAL_SHOST}_${GLOBAL_DATETIME}.log"
@@ -32,6 +34,7 @@ GLOBAL_OUTPUT_NAME="system_info_${GLOBAL_SHOST}_${GLOBAL_DATETIME}"
 GLOBAL_OUTPUT_DIR="${GLOBAL_SCRIPT_DIR}/${GLOBAL_OUTPUT_NAME}"
 GLOBAL_TAR_FILE="${GLOBAL_SCRIPT_DIR}/gather_info_${GLOBAL_SHOST}_${GLOBAL_DATETIME}.tar.gz"
 readonly GLOBAL_DATETIME GLOBAL_SCRIPT_DIR GLOBAL_SCRIPT_NAME GLOBAL_SCRIPT_VERSION GLOBAL_SCRIPT_BUILD_ID GLOBAL_FHOST GLOBAL_SHOST GLOBAL_LOG_NAME GLOBAL_LOG_FILE GLOBAL_OUTPUT_NAME GLOBAL_OUTPUT_DIR GLOBAL_TAR_FILE
+rc=0
 command_output=""
 warning_flag=0
 error_flag=0
@@ -78,10 +81,10 @@ show_version() {
 	echo "${GLOBAL_SCRIPT_NAME}"
 	echo "Version: ${GLOBAL_SCRIPT_VERSION}"
 	echo "Build: ${GLOBAL_SCRIPT_BUILD_ID}"
-	echo "Copyright (c) 2022 SAS Institute Inc."
+	echo "Copyright (c) 2022-2023 SAS Institute Inc."
 	echo "Unpublished - All Rights Reserved."
 	echo
-	exit 0
+	exit "${rc}"
 }
 
 #####
@@ -95,15 +98,18 @@ show_usage() {
 	echo "  ${GLOBAL_SCRIPT_NAME} (parameter)"
 	echo
 	echo "  Optional parameters:"
-	echo "    -h, --help       Show usage info."
-	echo "    -v, --version    Show version info."
+	echo "      -h, --help       Show usage info."
+	echo "      -v, --version    Show version info."
 	echo
-	echo "  Function: Gather and package a select set of information about a system."
-	echo "            Results are packaged into a file named gather_info_[HOSTNAME]_[DATE]-[TIME].tar.gz."
+	echo "  Function:"
+	echo "      Gather and package a select set of information about a system."
+	echo "      Results are packaged into a file named gather_info_[HOSTNAME]_[DATE]-[TIME].tar.gz."
 	echo
-	echo "  Supported operating systems: RHEL and CentOS 6, 7 and 8."
+	echo "  Supported operating systems:"
+	echo "      RHEL 6, 7, 8 and 9"
+	echo "      CentOS 6, 7 and 8"
 	echo
-	exit 0
+	exit "${rc}"
 }
 
 #####
@@ -115,7 +121,7 @@ show_usage() {
 run_command() {
 	local command="$1"
 	local args="$2"
-	( bash -c "${command} ${args}" ) &>> "${GLOBAL_LOG_FILE}" & wait "$!"
+	( bash -c "set -o pipefail && ${command} ${args}" ) >> "${GLOBAL_LOG_FILE}" 2>&1 & wait "$!"
 	if [[ "$?" -gt 0 ]]; then
 		warning_flag=1
 		return 1
@@ -132,13 +138,24 @@ check_os() {
 		local os_name
 		os_full="$(cat /etc/redhat-release)"
 		os_version="$(echo "${os_full}" | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d'.' -f1)"
-		if [[ "${os_version}" -lt 6 || "${os_version}" -gt 8 || ! ( "$(echo "${os_full}" | grep -oi "centos" | wc -l)" -gt 0 || "$(echo "${os_full}" | grep -oi "red hat enterprise linux" | wc -l)" -gt 0 ) ]]; then
-			echo -e "\n[ERROR]: Operating system not supported. Supported operating systems: RHEL and CentOS 6, 7 and 8.\n"
-			exit 125
+		if [[ -z "${os_version}" ]]; then
+			echo -e "\n[ERROR]: Unable to detect operating system."
+			rc=1
+			show_usage
+		fi
+
+		# split out checks for rhel 6-9 & centos 6-8
+		if [[ ! ( "$(echo "${os_full}" | grep -oi "red hat enterprise linux" | wc -l)" -gt 0 && "${os_version}" -ge 6 && "${os_version}" -le 9 ) ]]; then
+			if [[ ! ( "$(echo "${os_full}" | grep -oi "centos" | wc -l)" -gt 0 && "${os_version}" -ge 6 && "${os_version}" -le 8 ) ]]; then
+				echo -e "\n[ERROR]: Operating system not supported."
+				rc=1
+				show_usage
+			fi
 		fi
 	else
-		echo -e "\n[ERROR]: Unable to access [/etc/redhat-release]. Supported operating systems: RHEL and CentOS 6, 7 and 8.\n"
-		exit 125
+		echo -e "\n[ERROR]: Unable to access [/etc/redhat-release]."
+		rc=1
+		show_usage
 	fi
 }
 
@@ -215,7 +232,7 @@ copy_commands() {
 				warning_flag=1
 			else
 				echo "[INFO]: Copying output of command [${command}] to [${dst_file}]." >> "${GLOBAL_LOG_FILE}"
-				run_command "${command}" "2>&1 >${dst_file}" || echo "[WARN]: Command [${command}] returned with a non-zero exit code." >> "${GLOBAL_LOG_FILE}" 
+				run_command "${command}" "2>&1 >${dst_file} | tee -a ${dst_file}" || echo "[WARN]: Command [${command}] returned with a non-zero exit code." >> "${GLOBAL_LOG_FILE}"
 			fi
 		done
 	fi
@@ -317,20 +334,20 @@ initialize() {
 	check_os
 	if [[ -f "${GLOBAL_TAR_FILE}" ]]; then
 		echo -e "\n[ERROR]: Tarball [${GLOBAL_TAR_FILE}] already exists. Exiting...\n"
-		exit 125
+		exit 1
 	fi
 	if [[ -f "${GLOBAL_LOG_FILE}" ]]; then
 		echo -e "\n[ERROR]: Log file [${GLOBAL_LOG_FILE}] already exists. Exiting...\n"
-		exit 125
+		exit 1
 	fi
 	if [[ -f "${GLOBAL_OUTPUT_DIR}" ]]; then
 		echo -e "\n[ERROR]: Output directory [${GLOBAL_OUTPUT_DIR}] already exists. Exiting...\n"
-		exit 125
+		exit 1
 	fi
 	echo "[INFO]: Script Name:    ${GLOBAL_SCRIPT_NAME}" > "${GLOBAL_LOG_FILE}"
 	echo "[INFO]: Script Version: ${GLOBAL_SCRIPT_VERSION}" >> "${GLOBAL_LOG_FILE}"
 	echo "[INFO]: Script Build:   ${GLOBAL_SCRIPT_BUILD_ID}" >> "${GLOBAL_LOG_FILE}"
-	echo "[INFO]: Copyright (c) 2022 SAS Institute Inc." >> "${GLOBAL_LOG_FILE}"
+	echo "[INFO]: Copyright (c) 2022-2023 SAS Institute Inc." >> "${GLOBAL_LOG_FILE}"
 	echo "[INFO]: Unpublished - All Rights Reserved." >> "${GLOBAL_LOG_FILE}"
 	echo "[INFO]: ----------" >> "${GLOBAL_LOG_FILE}"
 	if [[ "${GLOBAL_FHOST}" == "hostname: Name or service not known" ]]; then
@@ -359,12 +376,14 @@ initialize() {
 # ====================================================================
 if [[ $# -gt 1 ]]; then
 	echo -e "\n[ERROR]: Too many parameters given. Exiting..."
+	rc=1
 	show_usage
 fi
 if [[ $# -eq 0 ]]; then
 	# Verify that this script is being ran as root
 	if [[ $EUID -ne 0 ]]; then
 		echo -e "\n[ERROR]: This script must be run as root."
+		rc=1
 		show_usage
 	fi
 	initialize
@@ -373,7 +392,7 @@ else
 	case "$1" in
 		-h|--h|-help|--help) show_usage ;;
 		-v|--v|-version|--version) show_version ;;
-		*) echo -e "\n[ERROR]: Invalid parameter. Exiting...\n"; exit 125 ;;
+		*) echo -e "\n[ERROR]: Invalid parameter. Exiting...\n"; exit 1 ;;
 	esac
 fi
 exit "${error_flag}"

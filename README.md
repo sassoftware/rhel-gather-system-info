@@ -1,12 +1,14 @@
 # Gather System Info
 
-The Gather System Info tool is a Bash script that gathers and packages a select set of information about a RHEL or CentOS 6, 7 or 8 system.
+The Gather System Info tool is a Bash script that gathers and packages a select set of information about a RHEL (6, 7, 8 or 9) or CentOS (6, 7 or 8) system.
 
 Results are packaged into a tarball named `gather_info_[HOSTNAME]_[DATE]-[TIME].tar.gz`.
 
 ## Prerequisites
 
-- RHEL or CentOS 6, 7 or 8
+- Supported operating systems:
+    - RHEL 6, 7, 8 and 9
+    - CentOS 6, 7 and 8
 - Sudo or root
 - Bash
 
@@ -16,7 +18,7 @@ Use Git to clone the contents of the RHEL Gather System Info GitHub repo: https:
 
 ## Getting Started
 
-The Gather System Info tool must be run as root and can be executed on any RHEL or CentOS 6, 7 or 8. It is a standalone Bash script and does not require any SAS software.
+The Gather System Info tool must be run as root and can be executed on any RHEL (6, 7, 8 or 9) or CentOS (6, 7 or 8) system. It is a standalone Bash script and does not require any SAS software.
 
 ## Usage
 
